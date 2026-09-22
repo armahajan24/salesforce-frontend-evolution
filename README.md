@@ -4,7 +4,7 @@ A public Salesforce engineering experiment: the same business requirement, imple
 
 ## Quick start
 
-Prerequisites: [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) (`sf`), Node.js 20+/npm, and a Salesforce org on Hyperforce (Enterprise, Performance, Unlimited, Developer, or Partner Developer edition — required for the React/Multi-Framework piece; the other three work on any org).
+Prerequisites: [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) (`sf`), Node.js 22+/npm, and a Salesforce org on Hyperforce (Enterprise, Performance, Unlimited, Developer, or Partner Developer edition — required for the React/Multi-Framework piece; the other three work on any org).
 
 ```bash
 # 1. Clone and authenticate

@@ -8,7 +8,7 @@ The same Account 360 mini-dashboard (search Account → view details/Contacts/Op
 
 ## Finding 1: The shared-backend assumption holds for three of four, and breaks in a measurable way for the fourth
 
-Visualforce, Aura, and LWC all reached the same data through the same Apex service layer (`AccountDashboardService`), differing only in their thin entry points (a controller extension for VF, one `@AuraEnabled` class shared by Aura and LWC). React could not use that specific entry point — see "Apex access, precisely" below for exactly what that does and doesn't mean — and required its own 64-line Apex REST class plus a hand-written fetch client. This is a real, current, documented platform boundary (confirmed against live Salesforce docs, not assumed), and it is the most concrete, measurable finding in the entire project: **React is not a drop-in fourth way to build the same Lightning component — it is a genuinely separate application model that happens to run on the same platform and same data.**
+Visualforce, Aura, and LWC all reached the same data through the same Apex service layer (`AccountDashboardService`), differing only in their thin entry points (a custom controller for VF, one `@AuraEnabled` class shared by Aura and LWC). React could not use that specific entry point — see "Apex access, precisely" below for exactly what that does and doesn't mean — and required its own 64-line Apex REST class plus a hand-written fetch client. This is a real, current, documented platform boundary (confirmed against live Salesforce docs, not assumed), and it is the most concrete, measurable finding in the entire project: **React is not a drop-in fourth way to build the same Lightning component — it is a genuinely separate application model that happens to run on the same platform and same data.**
 
 ### Apex access, precisely
 
@@ -84,7 +84,7 @@ React's application code (outside of one small `src/api/` file) is ordinary, por
 
 These are different questions, and this project deliberately keeps them separate:
 
-- **To maintain what's already in production**: Visualforce's controller-extension/view-state model, and Aura's component/controller/helper split and manual state-attribute pattern, are both things a working Salesforce developer will encounter and must be able to read and safely modify, indefinitely. Neither is going away from existing orgs regardless of what's recommended for new work.
+- **To maintain what's already in production**: Visualforce's server-side controller/view-state model, and Aura's component/controller/helper split and manual state-attribute pattern, are both things a working Salesforce developer will encounter and must be able to read and safely modify, indefinitely. Neither is going away from existing orgs regardless of what's recommended for new work.
 - **To build new things well today**: LWC for anything living inside Lightning; React via Multi-Framework is a legitimate, current option specifically for standalone or portable apps, evaluated here on its actual current merits and rough edges, not as a wholesale replacement for LWC — this project makes no such claim, and Salesforce's own documentation doesn't either.
 
 ## Known limitations of this experiment

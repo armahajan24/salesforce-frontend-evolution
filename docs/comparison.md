@@ -6,7 +6,7 @@ Raw counts backing every claim here are in [results/comparison.md](../results/co
 
 All four read the same three objects and write one field. The *shape* of getting there differs sharply:
 
-- **Visualforce & Aura & LWC**: one shared `@AuraEnabled`/plain-Apex call pattern, either directly (Aura/LWC via `AccountDashboardController`) or through a controller extension (VF via `VisualforceAccountDashboardController`) — both ultimately calling the same `AccountDashboardService`. A developer who knows Apex can trace the entire data path in one file.
+- **Visualforce & Aura & LWC**: one shared `@AuraEnabled`/plain-Apex call pattern, either directly (Aura/LWC via `AccountDashboardController`) or through a custom controller (VF via `VisualforceAccountDashboardController`) — both ultimately calling the same `AccountDashboardService`. A developer who knows Apex can trace the entire data path in one file.
 - **React**: cannot reach that same Apex surface at all. It needs its own Apex REST resource (`AccountDashboardRestResource`, 64 lines that don't exist for the other three) and a client-side fetch wrapper (`src/api/accountDashboard.ts`) that manually constructs REST URLs, checks `response.ok`, and parses a JSON error envelope by hand — none of which LWC's `@wire`/imperative Apex or Aura's `$A.enqueueAction` require, since those runtimes handle transport, serialization, and error-shape normalization for you.
 
 **Verdict**: React's data-access layer is objectively more code, and more of it is hand-rolled plumbing (URL building, response parsing) rather than business logic, compared to the other three.
