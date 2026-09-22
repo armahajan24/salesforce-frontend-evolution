@@ -1,0 +1,165 @@
+<aura:component controller="AccountDashboardController" implements="flexipage:availableForAllPageTypes,force:appHostable" access="global">
+    <aura:attribute name="searchTerm" type="String" default=""/>
+    <aura:attribute name="accountOptions" type="Object[]" default="[]"/>
+    <aura:attribute name="hasAccountOptions" type="Boolean" default="false"/>
+    <aura:attribute name="searchAttempted" type="Boolean" default="false"/>
+    <aura:attribute name="selectedAccountId" type="String" default=""/>
+
+    <aura:attribute name="dashboard" type="Object"/>
+    <aura:attribute name="hasDashboard" type="Boolean" default="false"/>
+    <aura:attribute name="hasContacts" type="Boolean" default="false"/>
+
+    <aura:attribute name="stageOptions" type="String[]" default="[]"/>
+    <aura:attribute name="stageFilter" type="String" default="All"/>
+    <aura:attribute name="filteredOpportunities" type="Object[]" default="[]"/>
+    <aura:attribute name="hasOpportunities" type="Boolean" default="false"/>
+    <aura:attribute name="pipelineTotal" type="Decimal" default="0"/>
+
+    <aura:attribute name="editingOpportunityId" type="String" default=""/>
+    <aura:attribute name="newStageValue" type="String" default=""/>
+
+    <aura:attribute name="isLoading" type="Boolean" default="false"/>
+    <aura:attribute name="hasError" type="Boolean" default="false"/>
+    <aura:attribute name="errorMessage" type="String" default=""/>
+
+    <aura:handler name="init" value="{!this}" action="{!c.doInit}"/>
+
+    <div class="slds-scope slds-p-around_medium">
+        <h1 class="slds-text-heading_large slds-m-bottom_medium">Account 360 - Aura</h1>
+
+        <aura:if isTrue="{!v.hasError}">
+            <div class="slds-notify slds-notify_alert slds-theme_alert-texture slds-theme_error slds-m-bottom_medium" role="alert">
+                {!v.errorMessage}
+            </div>
+        </aura:if>
+
+        <aura:if isTrue="{!v.isLoading}">
+            <lightning:spinner alternativeText="Loading" size="small" class="slds-m-bottom_medium"/>
+        </aura:if>
+
+        <div class="slds-grid slds-gutters slds-m-bottom_medium">
+            <div class="slds-col slds-size_8-of-12">
+                <lightning:input label="Search Accounts by Name" value="{!v.searchTerm}" placeholder="e.g. Acme"/>
+            </div>
+            <div class="slds-col slds-size_4-of-12 slds-align-bottom">
+                <lightning:button label="Search" variant="brand" onclick="{!c.handleSearch}"/>
+            </div>
+        </div>
+
+        <aura:if isTrue="{!v.hasAccountOptions}">
+            <lightning:select label="Select an Account" value="{!v.selectedAccountId}" onchange="{!c.handleAccountSelect}" class="slds-m-bottom_medium">
+                <option value="">-- Search results --</option>
+                <aura:iteration items="{!v.accountOptions}" var="opt">
+                    <option value="{!opt.id}">{!opt.name}</option>
+                </aura:iteration>
+            </lightning:select>
+        </aura:if>
+        <aura:if isTrue="{!and(v.searchAttempted, v.hasAccountOptions == false)}">
+            <p class="slds-text-color_weak slds-m-bottom_medium">No matching Accounts.</p>
+        </aura:if>
+
+        <aura:if isTrue="{!v.hasDashboard}">
+            <div class="slds-box slds-m-bottom_medium">
+                <h2 class="slds-text-heading_medium">{!v.dashboard.account.name}</h2>
+                <p>Industry: {!v.dashboard.account.industry}</p>
+                <p>Phone: {!v.dashboard.account.phone}</p>
+                <p>Owner: {!v.dashboard.account.ownerName}</p>
+                <p>Billing City/State: {!v.dashboard.account.billingCity}, {!v.dashboard.account.billingState}</p>
+            </div>
+
+            <div class="slds-box slds-m-bottom_medium">
+                <h3 class="slds-text-heading_small slds-m-bottom_small">Contacts</h3>
+                <aura:if isTrue="{!v.hasContacts == false}">
+                    <p class="slds-text-color_weak">No Contacts for this Account.</p>
+                </aura:if>
+                <aura:if isTrue="{!v.hasContacts}">
+                    <table class="slds-table slds-table_bordered slds-table_striped">
+                        <thead>
+                            <tr class="slds-line-height_reset">
+                                <th scope="col">Name</th>
+                                <th scope="col">Title</th>
+                                <th scope="col">Email</th>
+                                <th scope="col">Phone</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <aura:iteration items="{!v.dashboard.contacts}" var="c">
+                                <tr>
+                                    <td>{!c.name}</td>
+                                    <td>{!c.title}</td>
+                                    <td>{!c.email}</td>
+                                    <td>{!c.phone}</td>
+                                </tr>
+                            </aura:iteration>
+                        </tbody>
+                    </table>
+                </aura:if>
+            </div>
+
+            <div class="slds-box slds-m-bottom_medium">
+                <h3 class="slds-text-heading_small slds-m-bottom_small">Opportunities</h3>
+                <lightning:select label="Filter by Stage" value="{!v.stageFilter}" onchange="{!c.handleStageFilterChange}" class="slds-m-bottom_small">
+                    <option value="All">All Stages</option>
+                    <aura:iteration items="{!v.stageOptions}" var="stage">
+                        <option value="{!stage}">{!stage}</option>
+                    </aura:iteration>
+                </lightning:select>
+
+                <aura:if isTrue="{!v.hasOpportunities == false}">
+                    <p class="slds-text-color_weak">No Opportunities match the current filter.</p>
+                </aura:if>
+                <aura:if isTrue="{!v.hasOpportunities}">
+                    <table class="slds-table slds-table_bordered slds-table_striped">
+                        <thead>
+                            <tr class="slds-line-height_reset">
+                                <th scope="col">Name</th>
+                                <th scope="col">Stage</th>
+                                <th scope="col">Amount</th>
+                                <th scope="col">Close Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <aura:iteration items="{!v.filteredOpportunities}" var="o">
+                                <tr>
+                                    <td>{!o.name}</td>
+                                    <td>{!o.stageName}</td>
+                                    <td>{!o.amount}</td>
+                                    <td>{!o.closeDate}</td>
+                                </tr>
+                            </aura:iteration>
+                        </tbody>
+                    </table>
+                </aura:if>
+
+                <p class="slds-text-heading_small slds-m-top_small slds-m-bottom_medium">
+                    Total Pipeline (filtered): {!v.pipelineTotal}
+                </p>
+
+                <div class="slds-box slds-theme_shade">
+                    <h4 class="slds-text-heading_small slds-m-bottom_small">Update an Opportunity's Stage</h4>
+                    <div class="slds-grid slds-gutters slds-wrap">
+                        <div class="slds-col slds-size_4-of-12">
+                            <lightning:select label="Opportunity" value="{!v.editingOpportunityId}" onchange="{!c.handleEditingOppChange}">
+                                <option value="">-- Select an Opportunity --</option>
+                                <aura:iteration items="{!v.filteredOpportunities}" var="o">
+                                    <option value="{!o.id}">{!o.name} ({!o.stageName})</option>
+                                </aura:iteration>
+                            </lightning:select>
+                        </div>
+                        <div class="slds-col slds-size_4-of-12">
+                            <lightning:select label="New Stage" value="{!v.newStageValue}" onchange="{!c.handleNewStageChange}">
+                                <option value="">-- Select a Stage --</option>
+                                <aura:iteration items="{!v.stageOptions}" var="stage">
+                                    <option value="{!stage}">{!stage}</option>
+                                </aura:iteration>
+                            </lightning:select>
+                        </div>
+                        <div class="slds-col slds-size_4-of-12 slds-align-bottom">
+                            <lightning:button label="Update Stage" variant="brand" onclick="{!c.handleUpdateStage}"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aura:if>
+    </div>
+</aura:component>

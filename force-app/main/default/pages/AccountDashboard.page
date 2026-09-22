@@ -1,0 +1,140 @@
+<apex:page controller="VisualforceAccountDashboardController" title="Account 360 (Visualforce)" sidebar="false">
+    <apex:slds />
+    <apex:form >
+        <div class="slds-scope">
+            <div class="slds-p-around_medium">
+                <h1 class="slds-text-heading_large slds-m-bottom_medium">Account 360 - Visualforce</h1>
+
+                <apex:pageMessages id="pageMessages" rendered="{!hasError}" />
+
+                <!-- Search -->
+                <div class="slds-form-element slds-m-bottom_medium">
+                    <label class="slds-form-element__label" for="searchInput">Search Accounts by Name</label>
+                    <div class="slds-form-element__control slds-grid">
+                        <apex:inputText id="searchInput" value="{!searchTerm}" styleClass="slds-input" html-placeholder="e.g. Acme"/>
+                        <apex:commandButton value="Search" action="{!doSearch}" reRender="resultsPanel, pageMessages" status="loadingStatus" styleClass="slds-button slds-button_brand slds-m-left_x-small"/>
+                    </div>
+                </div>
+
+                <apex:actionStatus id="loadingStatus" startText=" Loading..." />
+
+                <apex:outputPanel id="resultsPanel">
+                    <div class="slds-form-element slds-m-bottom_medium">
+                        <label class="slds-form-element__label" for="accountSelect">Select an Account</label>
+                        <apex:selectList id="accountSelect" value="{!selectedAccountId}" size="1" styleClass="slds-select">
+                            <apex:selectOptions value="{!accountOptions}"/>
+                        </apex:selectList>
+                        <apex:commandButton value="Load Dashboard" action="{!selectAccount}" reRender="dashboardPanel, pageMessages" status="loadingStatus" styleClass="slds-button slds-button_neutral slds-m-left_x-small"/>
+                    </div>
+
+                    <apex:outputPanel id="dashboardPanel">
+                        <apex:outputPanel rendered="{!hasAccount}">
+                            <!-- Account details -->
+                            <div class="slds-box slds-m-bottom_medium">
+                                <h2 class="slds-text-heading_medium">{!accountSummary.name}</h2>
+                                <p>Industry: <apex:outputText value="{!accountSummary.industry}"/></p>
+                                <p>Phone: <apex:outputText value="{!accountSummary.phone}"/></p>
+                                <p>Owner: <apex:outputText value="{!accountSummary.ownerName}"/></p>
+                                <p>Billing City/State: <apex:outputText value="{!accountSummary.billingCity}"/>, <apex:outputText value="{!accountSummary.billingState}"/></p>
+                            </div>
+
+                            <!-- Contacts -->
+                            <div class="slds-box slds-m-bottom_medium">
+                                <h3 class="slds-text-heading_small slds-m-bottom_small">Contacts</h3>
+                                <apex:outputPanel rendered="{!!hasContacts}">
+                                    <p class="slds-text-color_weak">No Contacts for this Account.</p>
+                                </apex:outputPanel>
+                                <apex:outputPanel rendered="{!hasContacts}">
+                                    <table class="slds-table slds-table_bordered slds-table_striped">
+                                        <thead>
+                                            <tr class="slds-line-height_reset">
+                                                <th scope="col">Name</th>
+                                                <th scope="col">Title</th>
+                                                <th scope="col">Email</th>
+                                                <th scope="col">Phone</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <apex:repeat value="{!contacts}" var="c">
+                                                <tr>
+                                                    <td><apex:outputText value="{!c.name}"/></td>
+                                                    <td><apex:outputText value="{!c.title}"/></td>
+                                                    <td><apex:outputText value="{!c.email}"/></td>
+                                                    <td><apex:outputText value="{!c.phone}"/></td>
+                                                </tr>
+                                            </apex:repeat>
+                                        </tbody>
+                                    </table>
+                                </apex:outputPanel>
+                            </div>
+
+                            <!-- Opportunities -->
+                            <div class="slds-box slds-m-bottom_medium">
+                                <h3 class="slds-text-heading_small slds-m-bottom_small">Opportunities</h3>
+                                <div class="slds-form-element slds-m-bottom_small">
+                                    <label class="slds-form-element__label" for="stageFilterSelect">Filter by Stage</label>
+                                    <apex:selectList id="stageFilterSelect" value="{!stageFilter}" size="1" styleClass="slds-select">
+                                        <apex:selectOptions value="{!stageOptions}"/>
+                                        <apex:actionSupport event="onchange" action="{!applyStageFilter}" reRender="dashboardPanel" status="loadingStatus"/>
+                                    </apex:selectList>
+                                </div>
+
+                                <apex:outputPanel rendered="{!!hasOpportunities}">
+                                    <p class="slds-text-color_weak">No Opportunities match the current filter.</p>
+                                </apex:outputPanel>
+                                <apex:outputPanel rendered="{!hasOpportunities}">
+                                    <table class="slds-table slds-table_bordered slds-table_striped">
+                                        <thead>
+                                            <tr class="slds-line-height_reset">
+                                                <th scope="col">Name</th>
+                                                <th scope="col">Stage</th>
+                                                <th scope="col">Amount</th>
+                                                <th scope="col">Close Date</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <apex:repeat value="{!filteredOpportunities}" var="o">
+                                                <tr>
+                                                    <td><apex:outputText value="{!o.name}"/></td>
+                                                    <td><apex:outputText value="{!o.stageName}"/></td>
+                                                    <td><apex:outputText value="{!o.amount}"/></td>
+                                                    <td><apex:outputText value="{!o.closeDate}"/></td>
+                                                </tr>
+                                            </apex:repeat>
+                                        </tbody>
+                                    </table>
+                                </apex:outputPanel>
+
+                                <p class="slds-text-heading_small slds-m-top_small">
+                                    Total Pipeline (filtered): <apex:outputText value="{0, number, $###,##0.00}">
+                                        <apex:param value="{!pipelineTotal}"/>
+                                    </apex:outputText>
+                                </p>
+
+                                <!-- Inline Stage update -->
+                                <div class="slds-box slds-theme_shade slds-m-top_medium">
+                                    <h4 class="slds-text-heading_small slds-m-bottom_small">Update an Opportunity's Stage</h4>
+                                    <div class="slds-grid slds-gutters">
+                                        <div class="slds-col">
+                                            <apex:selectList value="{!editingOpportunityId}" size="1" styleClass="slds-select">
+                                                <apex:selectOptions value="{!opportunityOptionsForUpdate}"/>
+                                            </apex:selectList>
+                                        </div>
+                                        <div class="slds-col">
+                                            <apex:selectList value="{!newStageValue}" size="1" styleClass="slds-select">
+                                                <apex:selectOptions value="{!stageOptions}"/>
+                                            </apex:selectList>
+                                        </div>
+                                        <div class="slds-col">
+                                            <apex:commandButton value="Update Stage" action="{!saveStageUpdate}" reRender="dashboardPanel, pageMessages" status="loadingStatus" styleClass="slds-button slds-button_brand"/>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </apex:outputPanel>
+                    </apex:outputPanel>
+                </apex:outputPanel>
+            </div>
+        </div>
+    </apex:form>
+</apex:page>
