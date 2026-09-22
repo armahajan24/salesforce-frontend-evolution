@@ -17,13 +17,27 @@ private class AccountSelectorTest {
     }
 
     @IsTest
-    static void searchByNameEscapesSpecialCharacters() {
+    static void searchByNameWithInjectionAttemptIsSafeAndMatchesNothing() {
         Test.startTest();
         // A malicious/edge-case search term must not throw and must not match everything.
+        // Protection comes from the :likeTerm bind variable (Apex parameterizes it),
+        // not from manual string escaping - a SOQL bind variable is never interpreted
+        // as query syntax regardless of its literal content.
         List<Account> results = AccountSelector.searchByName('\' OR Name != \'');
         Test.stopTest();
 
-        System.assertEquals(0, results.size(), 'Special characters must be escaped, not interpreted as SOQL');
+        System.assertEquals(0, results.size(), 'A bind-variable value must never be interpreted as SOQL syntax');
+    }
+
+    @IsTest
+    static void searchByNameMatchesNamesContainingApostrophes() {
+        TestDataFactory.createAccount('O\'Reilly Manufacturing');
+
+        Test.startTest();
+        List<Account> results = AccountSelector.searchByName('O\'Reilly');
+        Test.stopTest();
+
+        System.assertEquals(1, results.size(), 'A literal apostrophe in the search term must still match, not be double-escaped');
     }
 
     @IsTest

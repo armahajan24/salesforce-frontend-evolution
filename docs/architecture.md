@@ -20,18 +20,23 @@ Full spec: [prompts/requirement.md](../prompts/requirement.md).
 UI (Visualforce page / Aura cmp / LWC / React component)
         │
         ▼
-Service layer (Apex: AccountDashboardService)   ── OR ── Data SDK / UI API / GraphQL (native platform calls, no Apex)
+Entry point (VF controller · shared @AuraEnabled AccountDashboardController · React's AccountDashboardRestResource, via dataSdk.fetch())
         │
         ▼
-Selector layer (Apex: AccountSelector, ContactSelector, OpportunitySelector)  ── OR ── native SOQL-via-GraphQL
+Service layer (Apex: AccountDashboardService) — same class, called by all four entry points
+        │
+        ▼
+Selector layer (Apex: AccountSelector, ContactSelector, OpportunitySelector)
         │
         ▼
 Salesforce data (Account, Contact, Opportunity)
 ```
 
+All four UIs ultimately run the same Apex service/selector logic; only the *entry point* (the calling convention reaching that logic) differs. React's entry point happens to be Apex REST instead of `@AuraEnabled`, not a native-platform-only, Apex-free path — GraphQL/UI API were considered as an Apex-free alternative for React (see §4.4) but weren't used in this implementation.
+
 - **Visualforce and Aura** have no native alternative to Apex for cross-object dashboard queries, so both go through the same `AccountDashboardService` + selector classes (`with sharing`, enforces CRUD/FLS via `Security.stripInaccessible` and `WITH SECURITY_ENFORCED` / `WITH USER_MODE` SOQL).
 - **LWC** uses the same Apex service for the aggregate dashboard read (bulk Contacts+Opportunities in one round trip), because Lightning Data Service and the UI API `@wire` adapters are record-shaped, not "give me a dashboard" shaped — imperative Apex is the more appropriate tool here (per the requirement: "do not force Apex where native platform data APIs are clearly more appropriate," and the reverse: don't avoid Apex where it's clearly appropriate). The Opportunity Stage update, however, uses `lightning/uiRecordApi.updateRecord` (Lightning Data Service) directly — no Apex needed for a single-record field update, which is the textbook case LDS exists for.
-- **React (Multi-Framework)** *cannot* call the same `@AuraEnabled` Apex methods the other three use — this is a hard platform boundary, not a design choice (see §4.4). It reads/writes data exclusively through the **Data SDK** (`@salesforce/platform-sdk/data`), using **GraphQL** (`uiapi`) for queries and mutations. Where a capability has no GraphQL equivalent, the fallback is `dataSdk.fetch()` against an **Apex REST** (`@RestResource`) endpoint — not the `@AuraEnabled` classes used elsewhere. We reuse the same selector *logic* (bulkification, FLS/CRUD enforcement) inside a small `AccountDashboardRestService` Apex REST class rather than duplicating query logic, but the transport is necessarily different.
+- **React (Multi-Framework)** *cannot* call the same `@AuraEnabled` Apex methods the other three use — this is a hard platform boundary, not a design choice (see §4.4). It reads/writes data exclusively through the **Data SDK** (`@salesforce/platform-sdk`), and in this implementation every operation (Account search, dashboard read, Stage-picklist lookup, Stage update) goes through `dataSdk.fetch()` against a dedicated **Apex REST** (`@RestResource`) class, `AccountDashboardRestResource`. Salesforce's documented preference is GraphQL (`dataSdk.graphql`) for straightforward record data, with `dataSdk.fetch()` + Apex REST as the explicitly-supported path for custom server logic GraphQL doesn't cover — we chose the Apex REST path for *all* operations here (not just as a fallback) because the dashboard's composite, multi-object read shape (Account + Contacts + Opportunities + a computed pipeline total in one response) is exactly that kind of custom logic, and using one consistent transport keeps the four operations symmetric. `AccountDashboardRestResource` reuses the same selector/service *logic* (bulkification, FLS/CRUD enforcement) as the other three UIs — only the transport differs. See §4.4 for the full reasoning and docs/findings.md for the precise, corrected distinction between "React can't use `@salesforce/apex`/`@wire`" and "React can't run custom Apex" (the latter is false).
 
 This asymmetry is itself one of the most important, concrete findings of the experiment and is documented explicitly rather than smoothed over.
 
@@ -40,9 +45,9 @@ This asymmetry is itself one of the most important, concrete findings of the exp
 ### 4.1 Visualforce — mature, in maintenance, fully supported
 
 - Still a fully supported, production metadata type (`ApexPage`); no deprecation notice from Salesforce.
-- Current-pattern guidance used here: a `StandardController` extension (`AccountDashboardController`), `apex:actionFunction`/remote actions avoided in favor of a clean extension controller with `@AuraEnabled`-free plain Apex methods invoked via `apex:commandButton`/`actionSupport`, `apex:pageBlockTable`, `apex:outputPanel` for loading/empty state toggling via boolean getters, and `apex:pageMessages` for error display.
-- No client-side reactivity: every "loading" or "filter changed" state is a full or partial server round-trip via `apex:actionRegion`/rerender, i.e., view-state ping-pong. This is the central developer-experience cost we document.
-- Security: relies entirely on the controller extension being written correctly (`with sharing`, explicit FLS checks) — Visualforce does not give you FLS enforcement for free the way UI API-backed components do.
+- Current-pattern guidance used here: a **plain custom controller** (`controller="VisualforceAccountDashboardController"`, no `standardController`/extension — the dashboard isn't backed by a single record, so there's no natural standard controller to extend), `@AuraEnabled`-free plain Apex methods invoked via `apex:commandButton`/`apex:actionSupport`, hand-built SLDS `<table>` markup driven by `apex:repeat` (not `apex:pageBlockTable`, which requires the classic `apex:pageBlock`/`apex:pageBlockSection` chrome this SLDS-only page deliberately doesn't use), `apex:outputPanel` for loading/empty state toggling via boolean getters, and `apex:pageMessages` for error display.
+- No client-side reactivity: every "loading" or "filter changed" state is a full or partial server round-trip via `apex:commandButton`/`apex:actionSupport`'s own `reRender` targeting, with `apex:actionStatus` showing the in-flight indicator — i.e., view-state ping-pong. No `apex:actionRegion` is used (`actionSupport`'s `reRender` attribute is sufficient here). This is the central developer-experience cost we document.
+- Security: relies entirely on the controller being written correctly (`with sharing`, explicit FLS checks via the shared `WITH USER_MODE` selectors) — Visualforce does not give you FLS enforcement for free the way UI API-backed components do.
 
 ### 4.2 Aura — supported, Salesforce recommends new dev in LWC, coexists with LWC
 
@@ -76,10 +81,11 @@ We build the **internal** variant, matching the other three (all internal/employ
 
 **Project structure**: `force-app/main/default/uiBundles/<AppName>/` containing `<AppName>.uibundle-meta.xml`, `ui-bundle.json` (routing/build-output config), its own `package.json`, and standard Vite-based React source (`src/`). Scaffolded via `sf template generate ui-bundle --name <Name> --template reactbasic` (confirmed available locally through the `ui-bundle-dev` CLI plugin) or `sf template generate project --template reactinternalapp` for a full new project.
 
-**Data access — the critical, hard constraint**: Multi-Framework apps run as standard web apps outside the LWC/Aura runtime, so none of the following are available: `@salesforce/apex/*` imports, `@salesforce/schema/*`, `@salesforce/user/*`, `lightning/uiRecordApi`, `lightning/*` base components, or `@wire`. Instead:
-- Data access goes through `@salesforce/platform-sdk/data`'s `createDataSDK()` → `dataSdk.graphql.query()` / `.mutate()` against the `uiapi` GraphQL schema (preferred, cached, reactive `subscribe()`/`refresh()`), or
-- `dataSdk.fetch()` for REST endpoints GraphQL doesn't cover — explicitly recommended for **Apex REST** (`/services/apexrest/...`) and other `/services/data/v{version}/...` endpoints.
-- There is **no direct invocation of `@AuraEnabled` Apex methods** from a React Multi-Framework app. Any Apex logic must be re-exposed via `@RestResource`(Apex REST) if GraphQL/UI API can't do it directly.
+**Data access — the critical, hard constraint**: Multi-Framework apps run as standard web apps outside the LWC/Aura runtime, so none of the following are available: `@salesforce/apex/*` imports (the LWC-style `@salesforce/apex/Class.method` invocation), `@salesforce/schema/*`, `@salesforce/user/*`, `lightning/uiRecordApi`, `lightning/*` base components, or `@wire`. Instead:
+- Data access goes through `@salesforce/platform-sdk`'s `createDataSDK()` → `dataSdk.graphql.query()` / `.mutate()` against the `uiapi` GraphQL schema — Salesforce's documented preferred path for straightforward record data (cached, reactive `subscribe()`/`refresh()`), **or**
+- `dataSdk.fetch()` against a REST endpoint — explicitly documented as the way to reach **Apex REST** (`/services/apexrest/...`) and other `/services/data/v{version}/...` endpoints for logic GraphQL/UI API doesn't cleanly cover.
+- **This implementation uses `dataSdk.fetch()` + Apex REST for all four operations** (search, composite dashboard read, Stage-picklist lookup, Stage update), not GraphQL — a deliberate choice, not a fallback used only where forced. The dashboard's shape (Account + Contacts + Opportunities + a server-computed pipeline total, in one response) is exactly the kind of custom, multi-object logic the docs point at Apex REST for, and hand-authoring the equivalent UI API GraphQL query without live schema introspection carried real hallucination risk that a single, already-tested Apex REST class avoided. GraphQL remains a valid, arguably more idiomatic alternative for a future iteration — see `docs/findings.md` for the explicit trade-off discussion.
+- There is **no direct invocation of `@AuraEnabled` Apex methods, no `@wire`, and no Lightning base components** from a React Multi-Framework app — but custom Apex logic itself is fully reachable via `@RestResource` (Apex REST). "React can't call Apex" is imprecise; see `docs/findings.md`'s "Apex access, precisely" section for the corrected, exact distinction.
 - Styling uses SLDS via the platform's own styling guide (not Aura/LWC's `lightning-*` base components, which aren't available).
 
 **Testing**: standard web tooling, not Salesforce-specific — Vitest + Testing Library (jsdom) for unit tests, Playwright for E2E, run from inside the UIBundle directory (`npm run test`, `npm run build:e2e && npx playwright test`). No Jest/`sfdx-lwc-jest`, no Apex test dependency for the React layer itself (the Apex REST endpoint it calls still needs its own Apex test class).

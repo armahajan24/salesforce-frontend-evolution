@@ -120,6 +120,28 @@ private class AccountDashboardRestResourceTest {
     }
 
     @IsTest
+    static void handlePatchWithMismatchedIdsReturns400() {
+        Account acc = TestDataFactory.createAccount('Acme Rockets');
+        List<Opportunity> opps = TestDataFactory.createOpportunities(acc.Id, 2);
+
+        // URL identifies opps[0]; body claims to be updating opps[1] - must be rejected.
+        RestRequest req = buildRequest('/services/apexrest/AccountDashboard/' + opps[0].Id, 'PATCH');
+        req.requestBody = Blob.valueOf(
+            JSON.serialize(new Map<String, Object>{ 'opportunityId' => opps[1].Id, 'stageName' => 'Closed Won' })
+        );
+        RestContext.request = req;
+        RestContext.response = new RestResponse();
+
+        Test.startTest();
+        AccountDashboardRestResource.handlePatch();
+        Test.stopTest();
+
+        System.assertEquals(400, RestContext.response.statusCode);
+        Opportunity unchanged = [SELECT StageName FROM Opportunity WHERE Id = :opps[1].Id];
+        System.assertNotEquals('Closed Won', unchanged.StageName, 'A mismatched body Id must not be applied');
+    }
+
+    @IsTest
     static void handlePatchWithInvalidStageReturns400() {
         Account acc = TestDataFactory.createAccount('Acme Rockets');
         Opportunity opp = TestDataFactory.createOpportunities(acc.Id, 1)[0];

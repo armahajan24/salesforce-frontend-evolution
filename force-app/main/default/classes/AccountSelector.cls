@@ -7,7 +7,10 @@ public inherited sharing class AccountSelector {
     private static final Integer SEARCH_LIMIT = 20;
 
     public static List<Account> searchByName(String searchTerm) {
-        String likeTerm = '%' + String.escapeSingleQuotes(searchTerm) + '%';
+        // No escapeSingleQuotes() here: :likeTerm is a bind variable, so Apex
+        // already parameterizes it safely - escaping on top of that would
+        // double-escape a literal apostrophe (e.g. "O'Reilly") and break the match.
+        String likeTerm = '%' + searchTerm + '%';
         return [
             SELECT Id, Name, Industry, Phone, BillingCity, BillingState, Owner.Name
             FROM Account

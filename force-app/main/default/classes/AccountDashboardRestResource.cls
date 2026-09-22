@@ -45,10 +45,23 @@ global with sharing class AccountDashboardRestResource {
         RestResponse res = RestContext.response;
         res.addHeader('Content-Type', 'application/json');
         try {
+            // The URL path segment is the authoritative Opportunity Id (consistent
+            // with the GET handler). If the JSON body also carries an opportunityId,
+            // it must match the path - a mismatch is rejected rather than silently
+            // trusting whichever one the caller meant, since the URL otherwise reads
+            // as identifying the record but was previously ignored entirely.
+            List<String> parts = req.requestURI.split('/');
+            Id pathOpportunityId = Id.valueOf(parts.get(parts.size() - 1));
+
             Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(req.requestBody.toString());
-            Id opportunityId = Id.valueOf(String.valueOf(body.get('opportunityId')));
+            Object bodyOpportunityIdRaw = body.get('opportunityId');
+            if (bodyOpportunityIdRaw != null && Id.valueOf(String.valueOf(bodyOpportunityIdRaw)) != pathOpportunityId) {
+                writeError(res, 400, 'The Opportunity Id in the URL and the request body do not match.');
+                return;
+            }
+
             String stageName = String.valueOf(body.get('stageName'));
-            AccountDashboardService.updateOpportunityStage(opportunityId, stageName);
+            AccountDashboardService.updateOpportunityStage(pathOpportunityId, stageName);
             res.statusCode = 204;
         } catch (AccountDashboardService.DashboardException e) {
             writeError(res, 400, e.getMessage());

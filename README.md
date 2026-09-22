@@ -2,6 +2,48 @@
 
 A public Salesforce engineering experiment: the same business requirement, implemented four times, compared on equal footing, against a real Salesforce org — not a synthetic benchmark and not a conclusion decided in advance.
 
+## Quick start
+
+Prerequisites: [Salesforce CLI](https://developer.salesforce.com/tools/salesforcecli) (`sf`), Node.js 20+/npm, and a Salesforce org on Hyperforce (Enterprise, Performance, Unlimited, Developer, or Partner Developer edition — required for the React/Multi-Framework piece; the other three work on any org).
+
+```bash
+# 1. Clone and authenticate
+git clone https://github.com/armahajan24/salesforce-frontend-evolution.git
+cd salesforce-frontend-evolution
+sf org login web --alias myorg --set-default
+
+# 2. Install dependencies (repo root, for Jest/Prettier tooling)
+npm install
+
+# 3. Install dependencies for the React UIBundle separately - it's its own npm project
+cd force-app/main/default/uiBundles/AccountDashboardReact
+npm install
+npm run build   # builds dist/, which is what actually gets deployed
+cd ../../../../..
+
+# 4. Deploy everything (Apex, Visualforce, Aura, LWC, the React UIBundle,
+#    its CustomApplication, and its PermissionSet) and run the Apex tests
+sf project deploy start --source-dir force-app --test-level RunLocalTests
+
+# 5. Grant yourself access to the React app (app visibility + Apex class access + API Enabled)
+sf org assign permset --name AccountDashboardReactAccess
+
+# 6. Open each implementation
+sf org open --path "/apex/AccountDashboard"                 # Visualforce
+sf org open --path "/c/accountDashboardApp.app"              # Aura
+sf org open --path "/c/accountDashboardLwcHost.app"           # LWC (previewed via a thin Aura host)
+sf org open                                                    # then use App Launcher → "Account Dashboard React"
+```
+
+Run the non-Apex test suites locally:
+
+```bash
+npm run test:unit                                                          # LWC Jest tests
+cd force-app/main/default/uiBundles/AccountDashboardReact && npx vitest run # React Vitest tests
+```
+
+This repository is licensed under [MIT](LICENSE) — reuse the code freely, including in your own comparison or write-up.
+
 ## 1. The question
 
 Salesforce's UI story has gone Visualforce → Aura → Lightning Web Components → (now, officially, GA as of July 2026) React via Salesforce Multi-Framework. What should a Salesforce developer actually invest in learning today, and what do they still need to understand because it's sitting in production orgs everywhere? This repo answers that empirically instead of asserting it.
@@ -28,15 +70,17 @@ One shared Apex selector/service layer (`AccountSelector`, `ContactSelector`, `O
 
 ## 7. React implementation (Salesforce Multi-Framework)
 
-[force-app/main/default/uiBundles/AccountDashboardReact](force-app/main/default/uiBundles/AccountDashboardReact), scaffolded with `sf template generate ui-bundle --template reactbasic` and deployed as a `UIBundle` + `CustomApplication`. Reads/writes through a dedicated Apex REST endpoint via `dataSdk.fetch()`. 5 Vitest tests, production build verified. Its live browser/data round trip was **not** fully completed in this session due to two real, documented tooling gaps (a local dev-proxy auth issue and an App Launcher visibility issue) — see [results/ai-experiment-log.md](results/ai-experiment-log.md) for the exact diagnosis.
+[force-app/main/default/uiBundles/AccountDashboardReact](force-app/main/default/uiBundles/AccountDashboardReact), scaffolded with `sf template generate ui-bundle --template reactbasic` and deployed as a `UIBundle` + `CustomApplication`. Reads/writes through a dedicated Apex REST endpoint (`AccountDashboardRestResource`) via `dataSdk.fetch()` for all four operations (search, dashboard read, stage list, Stage update) — see [docs/architecture.md](docs/architecture.md) for why this app uses `dataSdk.fetch()` + Apex REST throughout rather than GraphQL. 5 Vitest tests, production build verified, and the full flow (search → select → dashboard → Contacts/Opportunities → pipeline total → Stage filter → Stage update → reload with persistence confirmed via a direct SOQL query) was **verified live against the deployed production app**. Getting there required diagnosing and fixing a real `CustomApplication`/`PermissionSet` metadata gap and scientifically isolating a local dev-proxy-only auth quirk — see [docs/findings.md](docs/findings.md) (Finding 4) and [results/ai-experiment-log.md](results/ai-experiment-log.md) for the full diagnosis.
 
 ## 8. Testing
 
-Equivalent acceptance scenarios across all four (Account with/without Contacts/Opportunities, filtering, Stage update, permission failure, server error, empty search, large dataset) implemented as Apex tests (39 methods, all passing against the real org), LWC Jest tests (6), and React Vitest tests (5). Matrix: [prompts/requirement.md](prompts/requirement.md#acceptance-test-matrix-equivalent-across-all-four-implementations).
+Equivalent acceptance scenarios across all four (Account with/without Contacts/Opportunities, filtering, Stage update, permission failure, server error, empty search, large dataset) implemented as Apex tests (43 methods, all passing against the real org), LWC Jest tests (6), and React Vitest tests (5). Matrix: [prompts/requirement.md](prompts/requirement.md#acceptance-test-matrix-equivalent-across-all-four-implementations).
+
+**The single most important test-related finding in this repo**: the LWC's `lightning-combobox` was once bound to the wrong data shape (`{id, name}` instead of the required `{label, value}`) — and all 6 Jest tests still passed, because they dispatched synthetic `change` events that never exercised the actual option-rendering path. Only live browser testing against the real org caught it. This is stronger evidence than a simple "LWC vs. React" comparison: **AI-generated code plus a fully green unit-test suite is not the same claim as "this works" — real platform verification is not optional.** Full writeup: [results/ai-experiment-log.md](results/ai-experiment-log.md), finding #9.
 
 ## 9. Comparison
 
-Raw, measured counts (files, lines, test counts, real errors hit): [results/comparison.md](results/comparison.md). Narrative comparison across data-access, state-management, testing, debugging, tooling, App Builder integration, portability, and learning curve: [docs/comparison.md](docs/comparison.md).
+Raw, measured counts (files, lines, test counts, real errors hit), with a stated, reproducible methodology and shared-backend vs. framework-specific code separated out: [results/comparison.md](results/comparison.md). Narrative comparison across data-access, state-management, testing, debugging, tooling, App Builder integration, portability, and learning curve: [docs/comparison.md](docs/comparison.md) and [docs/framework-comparison.md](docs/framework-comparison.md) (dimension-by-dimension, no overall winner assigned).
 
 ## 10. AI coding-agent findings
 
@@ -48,7 +92,7 @@ Full reasoning: [docs/findings.md](docs/findings.md). Short version: LWC remains
 
 ## 12. Known limitations
 
-- React's live data round trip in a browser was not completed in this session (backend independently verified via unit tests instead) — see Finding 4 in [docs/findings.md](docs/findings.md).
+- Stage validation (`OpportunitySelector.isActiveStage`) checks against the *org-wide* active `Opportunity.StageName` picklist values. In a real org using multiple Sales Processes/record types, valid Stages can legitimately differ by record type — this demo doesn't model that, since the requirement doesn't call for multiple sales processes.
 - No performance benchmarks are claimed anywhere in this repository.
 - One org, one AI agent, one moderately-sized feature — a controlled comparison, not a statistical sample.
 - All code here was written by an AI coding agent and should be reviewed like any AI-generated code before being treated as production-ready.
@@ -64,9 +108,11 @@ All Multi-Framework/React claims were verified against live `developer.salesforc
 ```
 salesforce-frontend-evolution/
 ├── README.md                    - this file
+├── LICENSE                      - MIT
 ├── docs/
 │   ├── architecture.md          - research findings + shared architecture
 │   ├── comparison.md            - narrative comparison
+│   ├── framework-comparison.md  - fair, dimension-by-dimension architecture comparison
 │   └── findings.md              - factual findings report
 ├── force-app/main/default/
 │   ├── classes/                 - shared Apex (selectors, service, DTO, per-UI controllers, tests)
